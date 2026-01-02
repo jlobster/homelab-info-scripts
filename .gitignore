@@ -1,5 +1,7 @@
-# Credentials - NEVER commit these!
+# Environment and Secrets files - NEVER commit these!
 .env
+.env.*
+!.env.example
 
 # (Optional) Working directory with outputs
 workingDir/
@@ -17,8 +19,7 @@ env/
 ENV/
 .venv
 
-# IDE
-.vscode/
+# IDE Misc
 .idea/
 *.swp
 *.swo
@@ -28,7 +29,7 @@ ENV/
 *.log
 
 ## Full List of .gitignore entries by app/IDE/OS at https://github.com/github/gitignore/tree/main/Global
-## Many can be put in the global gitignores, with directions here: https://docs.github.com/en/get-started/git-basics/ignoring-files#configuring-ignored-files-for-all-repositories-on-your-computer
+## Realistically, these can be put in global gitignore, with directions here: https://docs.github.com/en/get-started/git-basics/ignoring-files#configuring-ignored-files-for-all-repositories-on-your-computer
 
 ## Ignore macOS-generated files
 ##
@@ -111,3 +112,17 @@ $RECYCLE.BIN/
 
 # Built Visual Studio Code Extensions
 *.vsix
+
+## Ignore AI-generated files
+# AI coding assistants
+.claude/
+.claude-code/
+.codex/
+.codex-cache/
+.codex-context/
+
+# LLM / agent artifacts
+.ai/
+.llm/
+.agent/
+.agent-cache/
