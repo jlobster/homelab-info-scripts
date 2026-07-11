@@ -73,17 +73,38 @@ else
 fi
 echo ""
 
+echo "=== GRAVITY / BLOCKLISTS (HIGH-LEVEL) ==="
+if [ -f /etc/pihole/gravity.db ]; then
+    echo "Total gravity (blocked) domains:"
+    sudo sqlite3 /etc/pihole/gravity.db "SELECT COUNT(*) FROM gravity;" 2>/dev/null
+    echo ""
+    echo "Adlists (enabled / total):"
+    sudo sqlite3 /etc/pihole/gravity.db "SELECT (SELECT COUNT(*) FROM adlist WHERE enabled=1) || ' / ' || COUNT(*) FROM adlist;" 2>/dev/null
+    echo ""
+    echo "Adlist sources (enabled | domains | address):"
+    sudo sqlite3 -separator ' | ' /etc/pihole/gravity.db \
+      "SELECT CASE enabled WHEN 1 THEN 'on ' ELSE 'off' END, number, address FROM adlist ORDER BY enabled DESC, id;" 2>/dev/null
+    echo ""
+    echo "Local allow/deny rules (type | count):"
+    sudo sqlite3 -separator ' | ' /etc/pihole/gravity.db \
+      "SELECT CASE type WHEN 0 THEN 'deny-exact' WHEN 1 THEN 'allow-exact' WHEN 2 THEN 'deny-regex' WHEN 3 THEN 'allow-regex' ELSE type END, COUNT(*) FROM domainlist GROUP BY type ORDER BY type;" 2>/dev/null
+    echo ""
+else
+    echo "gravity.db not found at /etc/pihole/gravity.db"
+    echo ""
+fi
+
 echo "=== KNOWN CLIENTS ==="
 echo "Total unique clients in database:"
 sudo sqlite3 /etc/pihole/pihole-FTL.db "SELECT COUNT(DISTINCT ip) FROM client_by_id WHERE ip NOT LIKE '127.%' AND ip NOT LIKE '::1';" 2>/dev/null
 echo ""
 echo "Clients with hostnames (sample - first 50):"
-sudo sqlite3 /etc/pihole/pihole-FTL.db "SELECT ip, name FROM client_by_id WHERE name IS NOT NULL AND name != '' AND ip NOT LIKE '127.%' ORDER BY ip LIMIT 50;" 2>/dev/null
+sudo sqlite3 /etc/pihole/pihole-FTL.db "SELECT ip, name FROM client_by_id WHERE name IS NOT NULL AND name != '' AND ip NOT LIKE '127.%' AND ip NOT LIKE '169.254.%' ORDER BY ip LIMIT 50;" 2>/dev/null
 echo ""
 
 echo "=== ACTIVE DEVICES (with MAC addresses) ==="
 echo "Recent devices on network (last 7 days):"
-sudo sqlite3 /etc/pihole/pihole-FTL.db "SELECT n.hwaddr, na.ip, na.name, n.macVendor FROM network n LEFT JOIN network_addresses na ON n.id = na.network_id WHERE na.lastSeen > strftime('%s','now','-7 days') ORDER BY na.ip LIMIT 100;" 2>/dev/null
+sudo sqlite3 /etc/pihole/pihole-FTL.db "SELECT n.hwaddr, na.ip, na.name, n.macVendor FROM network n LEFT JOIN network_addresses na ON n.id = na.network_id WHERE na.lastSeen > strftime('%s','now','-7 days') AND na.ip NOT LIKE '169.254.%' ORDER BY na.ip LIMIT 100;" 2>/dev/null
 echo ""
 
 echo "=== TOP 20 QUERYING CLIENTS (LAST 24H) ==="

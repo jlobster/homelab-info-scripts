@@ -187,6 +187,39 @@ if ($showProgress) {
     }
 }
 
+# Build cross-host container role/service map from the collected *-docker.txt files
+$roleMapPath = Join-Path $outputDir "_ROLE-MAP.txt"
+$roleLines = New-Object System.Collections.Generic.List[string]
+$roleLines.Add("=== CROSS-HOST CONTAINER ROLE / SERVICE MAP ===")
+$roleLines.Add("Generated $timestamp  (running containers only; name | image | published ports)")
+$roleLines.Add("")
+foreach ($system in $systems) {
+    $dockerFile = Join-Path $outputDir "$($system.Name)-docker.txt"
+    if (-not (Test-Path $dockerFile)) { continue }
+    $lines = Get-Content $dockerFile
+    $start = ($lines | Select-String -SimpleMatch "=== CONTAINER ROLE LINES" | Select-Object -First 1)
+    if (-not $start) { continue }
+    $roleLines.Add("--- $($system.Name) ---")
+    for ($i = $start.LineNumber; $i -lt $lines.Count; $i++) {
+        $ln = $lines[$i]
+        if ($ln -match '^===') { break }          # next section
+        if ($ln -match '^\s*$') { continue }
+        $parts = $ln.Split('|')
+        $name  = $parts[0].Trim()
+        $image = if ($parts.Length -gt 1) { $parts[1].Trim() } else { "" }
+        $ports = if ($parts.Length -gt 2) { $parts[2].Trim() } else { "" }
+        # Keep only host-published ports (drop internal-only mappings) for readability
+        $pub = (($ports -split ',') | Where-Object { $_ -match '->' } | ForEach-Object { $_.Trim() }) -join ', '
+        $roleLines.Add(("  {0,-22} {1,-40} {2}" -f $name, $image, $pub))
+    }
+    $roleLines.Add("")
+}
+$roleLines | Out-File -FilePath $roleMapPath -Encoding utf8
+if ($showProgress) {
+    Write-Host "Cross-host role map: _ROLE-MAP.txt" -ForegroundColor Green
+    Write-Host ""
+}
+
 # Process Pi-hole if configured
 if ($piholeIP) {
     $count++

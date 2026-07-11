@@ -23,8 +23,16 @@ echo "=== CONTAINERS (ALL) ==="
 $DOCKER ps -a
 echo
 
+echo "=== CONTAINER ROLE LINES (name|image|ports) ==="
+# Machine-readable; the collector aggregates these across hosts into _ROLE-MAP.txt.
+$DOCKER ps --format '{{.Names}}|{{.Image}}|{{.Ports}}' 2>/dev/null | sort
+echo
+
 echo "=== IMAGES ==="
-$DOCKER images
+# Tagged images only — dangling <none> layers (e.g. post-pull leftovers) are noise.
+$DOCKER images --filter "dangling=false"
+danglecount=$($DOCKER images --filter "dangling=true" -q 2>/dev/null | wc -l | tr -d ' ')
+echo "(+ $danglecount dangling <none> image layers omitted)"
 echo
 
 echo "=== NETWORKS ==="
@@ -32,7 +40,10 @@ $DOCKER network ls
 echo
 
 echo "=== VOLUMES ==="
-$DOCKER volume ls
+# Named volumes only; anonymous 64-hex volumes are per-container churn.
+$DOCKER volume ls | awk 'NR==1 || $2 !~ /^[0-9a-f]{64}$/'
+anoncount=$($DOCKER volume ls -q 2>/dev/null | grep -cE '^[0-9a-f]{64}$')
+echo "(+ $anoncount anonymous volumes omitted)"
 echo
 
 echo "=== GPU CAPABILITY (DOCKER VIEW) ==="

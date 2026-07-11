@@ -12,7 +12,12 @@ getcfg system "Platform"
 echo
 
 echo "=== CPU INFO ==="
-cat /proc/cpuinfo
+# Summary only — /proc/cpuinfo repeats a full flags/bugs block per logical core.
+awk -F: '/model name/ {model=$2} END {print "Model:" model}' /proc/cpuinfo
+echo "Sockets:       $(awk -F: '/physical id/ {print $2}' /proc/cpuinfo | sort -u | wc -l | tr -d ' ')"
+echo "Cores/socket:  $(awk -F: '/cpu cores/ {gsub(/ /,"",$2); print $2; exit}' /proc/cpuinfo)"
+echo "Logical CPUs:  $(grep -c '^processor' /proc/cpuinfo)"
+echo "Max MHz:       $(awk -F: '/cpu MHz/ {gsub(/ /,"",$2); if($2>m)m=$2} END {print m}' /proc/cpuinfo)"
 echo
 
 echo "=== MEMORY (RAM) ==="
@@ -38,31 +43,33 @@ echo "--- PHYSICAL DISKS ---"
 /sbin/hal_app --pd_enum enc_id=0 2>/dev/null
 echo ""
 
-echo "--- PHYSICAL ENCLOSURES ---"
-for f in /etc/enclosure_*.conf; do
-  [ -f "$f" ] || continue
-  echo
-  echo "-- $f"
-  sed 's/^/  /' "$f"
-done
+echo "--- DISK HEALTH SUMMARY (qcli_storage -d) ---"
+# Non-root readable: model / type / size / signature per physical disk.
+/sbin/qcli_storage -d 2>/dev/null || echo "qcli_storage -d not available"
+echo
 
-## SMART status no longer natively available via CLI, requires smartctl, which needs to be installed via Entware
-# if [ -x /sbin/get_hd_smartinfo ]; then
-#   echo
-#   echo "--- SMART PER DISK SLOT ---"
-#   for disk in $(/sbin/qcli_storage -p 2>/dev/null | awk '/^[0-9]+/ {print $1}'); do
-#     echo
-#     echo "--- DISK SLOT $disk ---"
-#     /sbin/get_hd_smartinfo -d "$disk"
-#   done
-# else
-#   echo "get_hd_smartinfo not available"
-# fi
-# echo
-
-echo "--- BLOCK DEVICES ---"
-echo "--- /proc/partitions ---"
-cat /proc/partitions 2>/dev/null || echo "Not available"
+echo "--- SMART ATTRIBUTES (get_hd_smartinfo) ---"
+# Real SMART attributes (reallocated sectors, power-on-hours, temp, etc.) require
+# root: get_hd_smartinfo opens the raw block device. The collector runs as josh
+# non-interactively, so this needs a scoped passwordless-sudo entry for
+# get_hd_smartinfo. If that isn't present, sudo -n fails and we say so plainly
+# rather than emitting a broken section.
+if [ -x /sbin/get_hd_smartinfo ]; then
+  if sudo -n /sbin/get_hd_smartinfo -h >/dev/null 2>&1; then
+    for port in $(/sbin/qcli_storage -p 2>/dev/null | awk '/^NAS_HOST/ {print $2}'); do
+      echo "--- DISK PORT $port ---"
+      sudo -n /sbin/get_hd_smartinfo -d "$port" 2>&1
+      echo
+    done
+  else
+    echo "SMART attributes unavailable: get_hd_smartinfo requires root and"
+    echo "passwordless sudo is not configured for it on this host. Model/size"
+    echo "above is from qcli_storage. To enable full SMART here, add a scoped"
+    echo "sudoers entry for /sbin/get_hd_smartinfo (see homelab-info-scripts README)."
+  fi
+else
+  echo "get_hd_smartinfo not present on this host."
+fi
 echo
 
 ## fdisk requires admin/root on QNAP (block devices not accessible to non-root users)
@@ -101,18 +108,9 @@ else
 fi
 echo
 
-echo "--- SSD CACHE (CACHEDEV / DM-CACHE) ---"
-if ls /sys/block/dm-* >/dev/null 2>&1; then
-  for dm in /sys/block/dm-*; do
-    echo
-    echo "--- $(basename "$dm") ---"
-    cat "$dm/dm/name" 2>/dev/null
-    cat "$dm/dm/uuid" 2>/dev/null
-  done
-else
-  echo "No dm-cache devices detected"
-fi
-echo
+# SSD cache / dm-* device map intentionally omitted: it emitted 30+ LVM UUID
+# lines of plumbing noise. SSD-cache enablement is shown by 'ssdCache' in VOLUME
+# DEFINITIONS and utilisation by CACHE TIER STATUS above.
 
 echo "=== STORAGE FILESYSTEMS ==="
 echo "--- DISK USAGE (DF) ---"
@@ -187,14 +185,22 @@ ip addr show | grep -A 2 "^[0-9]*: br-" 2>/dev/null || echo "No Docker bridges f
 echo
 
 echo "=== NETWORK INTERFACES ==="
-ip addr 2>/dev/null || ifconfig -a
+# Drop per-container veth* blocks (one per running container = heavy noise);
+# keep real NICs, bonds, bridges, docker0, lxc/lxd bridges in full detail.
+if ip addr >/dev/null 2>&1; then
+  ip addr | awk '/^[0-9]+: veth/{skip=1;next} /^[0-9]+: /{skip=0} !skip'
+else
+  ifconfig -a
+fi
 echo
 
 echo "=== LISTENING PORTS (HOST) ==="
+# Filter NetBIOS name/datagram service (udp/137,138) — one broadcast line per
+# bridge/interface, pure noise. Everything else (all TCP LISTEN, real UDP) kept.
 if command -v ss >/dev/null 2>&1; then
-  ss -tuln
+  ss -tuln | grep -vE ':13[78] '
 elif command -v netstat >/dev/null 2>&1; then
-  netstat -tuln
+  netstat -tuln | grep -vE ':13[78] '
 else
   echo "No socket inspection tool available"
 fi
